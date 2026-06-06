@@ -28,7 +28,13 @@ public class AccountServiceImpl implements AccountService {
     @Override
     @Transactional
     @TrackExecutionTime("processTransaction")
-    @AuditedTransaction(action = "ACCOUNT_PROCESS_TRANSACTION")
+    @AuditedTransaction(
+            action = "ACCOUNT_PROCESS_TRANSACTION",
+            eventId = "#request.eventId",
+            accountId = "#accountId",
+            type = "#request.type",
+            amount = "#request.amount"
+    )
     public void processTransaction(String accountId, TransactionRequest request) {
         log.info("Processing transaction for account: {}, eventId: {}", accountId, request.getEventId());
 
@@ -36,6 +42,13 @@ public class AccountServiceImpl implements AccountService {
         if (repository.existsById(request.getEventId())) {
             log.info("Duplicate transaction detected in Account Service: {}", request.getEventId());
             throw new DuplicateTransactionException(request.getEventId());
+        }
+
+        // Enforce currency consistency: get last transaction for this account and assert currency matches
+        AccountTransaction lastTx = repository.findFirstByAccountIdOrderByEventTimestampDesc(accountId);
+        if (lastTx != null && !lastTx.getCurrency().equalsIgnoreCase(request.getCurrency())) {
+            log.warn("Currency mismatch for account {}: expected {}, got {}", accountId, lastTx.getCurrency(), request.getCurrency());
+            throw new IllegalArgumentException("Currency mismatch for account: " + accountId + ". Expected " + lastTx.getCurrency() + ", got " + request.getCurrency());
         }
 
         // Persist transaction
@@ -57,29 +70,21 @@ public class AccountServiceImpl implements AccountService {
     @TrackExecutionTime("getBalance")
     public AccountBalanceResponse getBalance(String accountId) {
         log.info("Calculating balance dynamically for account: {}", accountId);
-        List<AccountTransaction> transactions = repository.findByAccountId(accountId);
-
-        BigDecimal balance = BigDecimal.ZERO;
-        Instant lastUpdated = Instant.EPOCH;
-        String currency = "USD"; // Default fallback
-
-        for (AccountTransaction tx : transactions) {
-            currency = tx.getCurrency();
-            if ("CREDIT".equalsIgnoreCase(tx.getType())) {
-                balance = balance.add(tx.getAmount());
-            } else if ("DEBIT".equalsIgnoreCase(tx.getType())) {
-                balance = balance.subtract(tx.getAmount());
-            }
-            if (tx.getEventTimestamp().isAfter(lastUpdated)) {
-                lastUpdated = tx.getEventTimestamp();
-            }
+        
+        BigDecimal balance = repository.calculateBalance(accountId);
+        if (balance == null) {
+            balance = BigDecimal.ZERO;
         }
+
+        AccountTransaction lastTx = repository.findFirstByAccountIdOrderByEventTimestampDesc(accountId);
+        Instant lastUpdated = (lastTx != null) ? lastTx.getEventTimestamp() : Instant.now();
+        String currency = (lastTx != null) ? lastTx.getCurrency() : "USD";
 
         return AccountBalanceResponse.builder()
                 .accountId(accountId)
                 .balance(balance)
                 .currency(currency)
-                .lastUpdated(lastUpdated == Instant.EPOCH ? Instant.now() : lastUpdated)
+                .lastUpdated(lastUpdated)
                 .build();
     }
 

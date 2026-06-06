@@ -157,4 +157,44 @@ public class AccountIntegrationTest {
                 .body("balance", equalTo(150.0f))
                 .body("transactions.size()", equalTo(2));
     }
+
+    @Test
+    public void testApplyTransaction_CurrencyMismatch() {
+        String accountId = "acct-curr-check";
+
+        TransactionRequest t1 = TransactionRequest.builder()
+                .eventId("evt-curr-1")
+                .type("CREDIT")
+                .amount(new BigDecimal("100.00"))
+                .currency("USD")
+                .eventTimestamp(Instant.now())
+                .build();
+
+        TransactionRequest t2 = TransactionRequest.builder()
+                .eventId("evt-curr-2")
+                .type("CREDIT")
+                .amount(new BigDecimal("50.00"))
+                .currency("EUR") // Mismatched currency
+                .eventTimestamp(Instant.now())
+                .build();
+
+        // 1st transaction (USD) -> Success
+        given()
+                .header("Authorization", "Bearer " + m2mSecret)
+                .contentType(ContentType.JSON)
+                .body(t1)
+                .post("/accounts/" + accountId + "/transactions")
+                .then()
+                .statusCode(201);
+
+        // 2nd transaction (EUR) -> 400 Bad Request
+        given()
+                .header("Authorization", "Bearer " + m2mSecret)
+                .contentType(ContentType.JSON)
+                .body(t2)
+                .post("/accounts/" + accountId + "/transactions")
+                .then()
+                .statusCode(400)
+                .body("detail", org.hamcrest.Matchers.containsString("Currency mismatch"));
+    }
 }

@@ -55,7 +55,8 @@ public class EventServiceTest {
 
         // Verify that the event is saved in both PENDING and COMPLETED states
         ArgumentCaptor<GatewayEvent> eventCaptor = ArgumentCaptor.forClass(GatewayEvent.class);
-        verify(repository, times(2)).save(eventCaptor.capture());
+        verify(repository, times(1)).saveAndFlush(eventCaptor.capture());
+        verify(repository, times(1)).save(eventCaptor.capture());
         
         // Verify that the final status of the saved event is COMPLETED
         assertThat(eventCaptor.getValue().getStatus()).isEqualTo("COMPLETED");
@@ -90,6 +91,7 @@ public class EventServiceTest {
         assertThatThrownBy(() -> eventService.processEvent(payload))
                 .isInstanceOf(DuplicateEventException.class);
 
+        verify(repository, never()).saveAndFlush(any(GatewayEvent.class));
         verify(repository, never()).save(any(GatewayEvent.class));
         verify(accountClient, never()).sendTransaction(anyString(), any(TransactionRequest.class));
     }
@@ -112,7 +114,8 @@ public class EventServiceTest {
                 .isInstanceOf(RuntimeException.class);
 
         ArgumentCaptor<GatewayEvent> eventCaptor = ArgumentCaptor.forClass(GatewayEvent.class);
-        verify(repository, times(2)).save(eventCaptor.capture());
+        verify(repository, times(1)).saveAndFlush(eventCaptor.capture());
+        verify(repository, times(1)).save(eventCaptor.capture());
 
         // Second save status is FAILED
         assertThat(eventCaptor.getAllValues().get(1).getStatus()).isEqualTo("FAILED");
@@ -250,5 +253,23 @@ public class EventServiceTest {
 
         assertThat(results).hasSize(1);
         assertThat(results.get(0).getEventId()).isEqualTo("evt-001");
+    }
+
+    @Test
+    public void testProcessEvent_DataIntegrityViolationOnSave() {
+        EventPayload payload = EventPayload.builder()
+                .eventId("evt-001")
+                .accountId("acct-123")
+                .type("CREDIT")
+                .amount(new BigDecimal("150.00"))
+                .currency("USD")
+                .eventTimestamp(Instant.now())
+                .build();
+
+        when(repository.findById("evt-001")).thenReturn(Optional.empty());
+        when(repository.saveAndFlush(any())).thenThrow(new org.springframework.dao.DataIntegrityViolationException("Duplicate key"));
+
+        assertThatThrownBy(() -> eventService.processEvent(payload))
+                .isInstanceOf(DuplicateEventException.class);
     }
 }
