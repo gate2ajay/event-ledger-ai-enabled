@@ -9,4 +9,8 @@ import java.lang.annotation.Target;
 @Retention(RetentionPolicy.RUNTIME)
 public @interface AuditedTransaction {
     String action() default "PROCESS_TRANSACTION";
+    String eventId() default "";
+    String accountId() default "";
+    String type() default "";
+    String amount() default "";
 }

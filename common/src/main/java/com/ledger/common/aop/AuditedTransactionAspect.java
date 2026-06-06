@@ -3,59 +3,55 @@ package com.ledger.common.aop;
 import org.aspectj.lang.JoinPoint;
 import org.aspectj.lang.annotation.Aspect;
 import org.aspectj.lang.annotation.Before;
+import org.aspectj.lang.reflect.MethodSignature;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.core.DefaultParameterNameDiscoverer;
+import org.springframework.core.ParameterNameDiscoverer;
+import org.springframework.expression.ExpressionParser;
+import org.springframework.expression.spel.standard.SpelExpressionParser;
+import org.springframework.expression.spel.support.StandardEvaluationContext;
 
 @Aspect
 public class AuditedTransactionAspect {
 
     private static final Logger log = LoggerFactory.getLogger(AuditedTransactionAspect.class);
+    
+    private final ExpressionParser parser = new SpelExpressionParser();
+    private final ParameterNameDiscoverer parameterNameDiscoverer = new DefaultParameterNameDiscoverer();
 
     @Before("@annotation(auditedTransaction)")
     public void audit(JoinPoint joinPoint, AuditedTransaction auditedTransaction) {
         String action = auditedTransaction.action();
         Object[] args = joinPoint.getArgs();
+        MethodSignature signature = (MethodSignature) joinPoint.getSignature();
         
-        String eventId = "UNKNOWN";
-        String accountId = "UNKNOWN";
-        String type = "UNKNOWN";
-        String amount = "UNKNOWN";
-
-        // Attempt to inspect args to extract transaction properties
-        for (Object arg : args) {
-            if (arg == null) continue;
-            
-            try {
-                // Check if it is EventPayload
-                Class<?> clazz = arg.getClass();
-                if (clazz.getSimpleName().equals("EventPayload")) {
-                    eventId = getFieldValue(arg, "eventId");
-                    accountId = getFieldValue(arg, "accountId");
-                    type = getFieldValue(arg, "type");
-                    amount = getFieldValue(arg, "amount");
-                    break;
-                } else if (clazz.getSimpleName().equals("TransactionRequest")) {
-                    eventId = getFieldValue(arg, "eventId");
-                    // Try to get accountId if available in method signature or route variables
-                    type = getFieldValue(arg, "type");
-                    amount = getFieldValue(arg, "amount");
-                }
-            } catch (Exception e) {
-                // Ignore parsing errors for safety in aspect
-            }
-        }
+        String eventId = evaluateExpression(auditedTransaction.eventId(), signature, args);
+        String accountId = evaluateExpression(auditedTransaction.accountId(), signature, args);
+        String type = evaluateExpression(auditedTransaction.type(), signature, args);
+        String amount = evaluateExpression(auditedTransaction.amount(), signature, args);
 
         log.info("{\"event\":\"audit_log\",\"action\":\"{}\",\"eventId\":\"{}\",\"accountId\":\"{}\",\"type\":\"{}\",\"amount\":\"{}\"}", 
                 action, eventId, accountId, type, amount);
     }
 
-    private String getFieldValue(Object target, String fieldName) {
+    private String evaluateExpression(String expressionStr, MethodSignature signature, Object[] args) {
+        if (expressionStr == null || expressionStr.trim().isEmpty()) {
+            return "UNKNOWN";
+        }
         try {
-            java.lang.reflect.Field field = target.getClass().getDeclaredField(fieldName);
-            field.setAccessible(true);
-            Object val = field.get(target);
-            return val != null ? val.toString() : "NULL";
+            java.lang.reflect.Method method = signature.getMethod();
+            String[] parameterNames = parameterNameDiscoverer.getParameterNames(method);
+            StandardEvaluationContext context = new StandardEvaluationContext();
+            if (parameterNames != null) {
+                for (int i = 0; i < parameterNames.length; i++) {
+                    context.setVariable(parameterNames[i], args[i]);
+                }
+            }
+            Object value = parser.parseExpression(expressionStr).getValue(context);
+            return value != null ? value.toString() : "NULL";
         } catch (Exception e) {
+            log.warn("Failed to evaluate SpEL expression: {}", expressionStr, e);
             return "UNKNOWN";
         }
     }

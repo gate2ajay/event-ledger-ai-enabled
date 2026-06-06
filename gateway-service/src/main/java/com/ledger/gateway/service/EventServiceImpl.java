@@ -36,7 +36,13 @@ public class EventServiceImpl implements EventService {
     @Override
     @Transactional
     @TrackExecutionTime("processEvent")
-    @AuditedTransaction(action = "GATEWAY_PROCESS_EVENT")
+    @AuditedTransaction(
+            action = "GATEWAY_PROCESS_EVENT",
+            eventId = "#eventPayload.eventId",
+            accountId = "#eventPayload.accountId",
+            type = "#eventPayload.type",
+            amount = "#eventPayload.amount"
+    )
     public EventPayload processEvent(EventPayload eventPayload) {
         log.info("Processing event: {}", eventPayload.getEventId());
 
@@ -58,7 +64,12 @@ public class EventServiceImpl implements EventService {
                 .metadataJson(serializeMetadata(eventPayload.getMetadata()))
                 .status("PENDING")
                 .build();
-        repository.save(event);
+        try {
+            repository.saveAndFlush(event);
+        } catch (org.springframework.dao.DataIntegrityViolationException e) {
+            log.info("Concurrency duplicate event detected via DB constraint: {}", eventPayload.getEventId());
+            throw new DuplicateEventException(eventPayload);
+        }
 
         try {
             // 3. Propagate to Account Service
