@@ -259,6 +259,11 @@ The instruction coverage of the two main services has been improved past the 80%
 | :--- | :--- | :--- | :--- | :--- |
 | **`account-service`** | 122 | 1059 | 1181 | **89.67%** |
 | **`gateway-service`** | 138 | 1161 | 1299 | **89.38%** |
+#### Account Service JaCoCo Coverage Report
+![Account Service Test Coverage](./account-service-test-coverage.png)
+
+#### Gateway Service JaCoCo Coverage Report
+![Gateway Service Test Coverage](./gateway-service-test-coverage.png)
 
 ### 7.1. Integration and Performance (k6) Testing
 
