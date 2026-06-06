@@ -5,6 +5,7 @@ import com.ledger.gateway.repository.GatewayEventRepository;
 import com.ledger.gateway.security.JwtHelper;
 import com.ledger.gateway.service.AccountClient;
 import io.github.resilience4j.circuitbreaker.CallNotPermittedException;
+import io.github.resilience4j.bulkhead.BulkheadFullException;
 import io.restassured.RestAssured;
 import io.restassured.http.ContentType;
 import org.junit.jupiter.api.BeforeEach;
@@ -185,5 +186,100 @@ public class GatewayIntegrationTest {
                 .statusCode(503)
                 .body("detail", equalTo("Account Service is currently unavailable (Circuit Breaker open)"))
                 .body("trace_id", notNullValue());
+    }
+
+    @Test
+    public void testCreateEvent_BulkheadFullException() {
+        EventPayload payload = EventPayload.builder()
+                .eventId("evt-400")
+                .accountId("acct-100")
+                .type("CREDIT")
+                .amount(new BigDecimal("50.00"))
+                .currency("USD")
+                .eventTimestamp(Instant.now())
+                .build();
+
+        io.github.resilience4j.bulkhead.Bulkhead bh = io.github.resilience4j.bulkhead.Bulkhead.ofDefaults("accountServiceBulkhead");
+        BulkheadFullException bfException = BulkheadFullException.createBulkheadFullException(bh);
+        doThrow(bfException).when(accountClient).sendTransaction(anyString(), any());
+
+        given()
+                .header("Authorization", "Bearer " + validToken)
+                .contentType(ContentType.JSON)
+                .body(payload)
+                .when()
+                .post("/events")
+                .then()
+                .statusCode(429)
+                .body("detail", equalTo("System is overloaded. Please try again later."));
+    }
+
+    @Test
+    public void testCreateEvent_TimeoutException() {
+        EventPayload payload = EventPayload.builder()
+                .eventId("evt-500")
+                .accountId("acct-100")
+                .type("CREDIT")
+                .amount(new BigDecimal("50.00"))
+                .currency("USD")
+                .eventTimestamp(Instant.now())
+                .build();
+
+        org.mockito.stubbing.Answer<Void> answer = invocation -> {
+            throwSneaky(new java.util.concurrent.TimeoutException("Timeout"));
+            return null;
+        };
+        org.mockito.Mockito.doAnswer(answer).when(accountClient).sendTransaction(anyString(), any());
+
+        given()
+                .header("Authorization", "Bearer " + validToken)
+                .contentType(ContentType.JSON)
+                .body(payload)
+                .when()
+                .post("/events")
+                .then()
+                .statusCode(504)
+                .body("detail", equalTo("Account Service call timed out."));
+    }
+
+    @Test
+    public void testCreateEvent_GenericException() {
+        EventPayload payload = EventPayload.builder()
+                .eventId("evt-600")
+                .accountId("acct-100")
+                .type("CREDIT")
+                .amount(new BigDecimal("50.00"))
+                .currency("USD")
+                .eventTimestamp(Instant.now())
+                .build();
+
+        doThrow(new RuntimeException("Uncaught error")).when(accountClient).sendTransaction(anyString(), any());
+
+        given()
+                .header("Authorization", "Bearer " + validToken)
+                .contentType(ContentType.JSON)
+                .body(payload)
+                .when()
+                .post("/events")
+                .then()
+                .statusCode(500)
+                .body("detail", equalTo("An unexpected internal error occurred. Please refer to trace ID for investigation."));
+    }
+
+    @Test
+    public void testGetToken() {
+        given()
+                .queryParam("client", "custom-client")
+                .when()
+                .get("/auth/token")
+                .then()
+                .statusCode(200)
+                .body("token", notNullValue())
+                .body("token_type", equalTo("Bearer"));
+    }
+
+    @SuppressWarnings("unchecked")
+    private static <T extends Throwable> void throwSneaky(Throwable t) throws T {
+        throw (T) t;
     }
 }
