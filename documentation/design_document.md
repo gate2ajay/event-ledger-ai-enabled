@@ -231,22 +231,33 @@ The following updates were made to the event-ledger application and deployment c
 
 ---
 
-## 7. System Interface Screenshots
+## 7. Code Coverage Report
+
+The instruction coverage of the two main services has been improved past the 80% threshold using JUnit 5, Mockito, and MockMvc to test Lombok models, security validation, and resilience fallback handlers:
+
+| Subproject | Missed Instructions | Covered Instructions | Total Instructions | Final Coverage % |
+| :--- | :--- | :--- | :--- | :--- |
+| **`account-service`** | 122 | 1059 | 1181 | **89.67%** |
+| **`gateway-service`** | 138 | 1161 | 1299 | **89.38%** |
+
+---
+
+## 8. System Interface Screenshots
 
 Below are screenshots illustrating the various tools and interfaces configured for the Event Ledger System:
 
-### 7.1. HTTP REST Client Testing
+### 8.1. HTTP REST Client Testing
 Shows API requests being sent to the Gateway Service with JWT bearer tokens:
 ![HTTP REST Client](./HTTP-REST-client.png)
 
-### 7.2. OpenAPI Swagger Documentation
+### 8.2. OpenAPI Swagger Documentation
 Displays the interactive API schemas and endpoints for service integration:
 ![OpenAPI Swagger Docs](./OpenAPI-docs.png)
 
-### 7.3. Grafana Telemetry Dashboard
+### 8.3. Grafana Telemetry Dashboard
 The correlated Grafana dashboard visualizing scraped metrics and Loki logs linked to Tempo tracing spans:
 ![Grafana Dashboard](./Grafana_dashboard.png)
 
-### 7.4. Email Alerts (Mailpit Catcher)
+### 8.4. Email Alerts (Mailpit Catcher)
 Displays the incoming Grafana-generated alerts caught by the local SMTP mail server interface:
 ![Mailpit Email Alerts](./email_alerts.png)
