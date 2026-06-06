@@ -1,0 +1,78 @@
+apiVersion: 1
+
+contactPoints:
+  - orgId: 1
+    name: mailpit
+    receivers:
+      - uid: mailpit-email
+        type: email
+        settings:
+          addresses: alerts@ledger.local
+          singleEmail: true
+
+policies:
+  - orgId: 1
+    receiver: mailpit
+    groupRules:
+      - groupRules: []
+        receiver: mailpit
+
+groups:
+  - orgId: 1
+    name: 'EventLedgerAlerts'
+    folder: 'Event Ledger'
+    interval: 10s
+    rules:
+      - uid: gateway-down
+        title: Gateway Service is Down
+        condition: A
+        data:
+          - refId: A
+            datasourceUid: Prometheus
+            model:
+              expr: up{job="gateway-service"} == 0
+              intervalMs: 10000
+              maxDataPoints: 43200
+              refId: A
+        for: 10s
+        annotations:
+          summary: "Gateway service is down"
+          description: "Gateway service container is down (up == 0)."
+        labels:
+          severity: critical
+
+      - uid: account-down
+        title: Account Service is Down
+        condition: A
+        data:
+          - refId: A
+            datasourceUid: Prometheus
+            model:
+              expr: up{job="account-service"} == 0
+              intervalMs: 10000
+              maxDataPoints: 43200
+              refId: A
+        for: 10s
+        annotations:
+          summary: "Account service is down"
+          description: "Account service container is down (up == 0)."
+        labels:
+          severity: critical
+
+      - uid: circuit-breaker-open
+        title: Circuit Breaker Open
+        condition: A
+        data:
+          - refId: A
+            datasourceUid: Prometheus
+            model:
+              expr: sum(resilience4j_circuitbreaker_state{state="open"}) > 0
+              intervalMs: 10000
+              maxDataPoints: 43200
+              refId: A
+        for: 10s
+        annotations:
+          summary: "Gateway Circuit Breaker is OPEN"
+          description: "Circuit breaker to Account service is in OPEN state, failing requests fast."
+        labels:
+          severity: warning
