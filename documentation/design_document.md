@@ -206,47 +206,104 @@ The application implements centralized exception mapping via `@RestControllerAdv
   * `MethodArgumentNotValidException` (Validation) $\rightarrow$ HTTP `400 Bad Request`
   * `Exception` (Generic Fallback) $\rightarrow$ HTTP `500 Internal Server Error`
 
-### 5.6. Aspect-Oriented Programming (AOP) Implementation
-AOP is configured to inject cross-cutting concerns (auditing and metrics tracking) dynamically without polluting core service logic:
-* **Execution Monitoring ([TrackExecutionTimeAspect](file:///home/ajayraja/workarea/projects/event-ledger-ai-enabled/common/src/main/java/com/ledger/common/aop/TrackExecutionTimeAspect.java)):**
-  Intercepts methods annotated with `@TrackExecutionTime`. It logs the method execution time in JSON format and registers a timer metric inside the Prometheus `MeterRegistry` for visual dashboard monitoring.
-* **Transaction Auditing ([AuditedTransactionAspect](file:///home/ajayraja/workarea/projects/event-ledger-ai-enabled/common/src/main/java/com/ledger/common/aop/AuditedTransactionAspect.java)):**
-  Intercepts methods annotated with `@AuditedTransaction`. It inspects method parameters (using reflection) to extract transaction details like `eventId`, `accountId`, and `amount`, writing a structured JSON audit log before execution begins.
+## 6. Observability, Auditing & Cross-Cutting Concerns (Spring AOP)
+
+AOP is configured to inject cross-cutting concerns (auditing and latency metrics tracking) dynamically without polluting core service logic:
+
+### 6.1. Execution Monitoring
+Intercepts methods annotated with `@TrackExecutionTime`. It logs the method execution time in JSON format and registers a timer metric inside the Prometheus `MeterRegistry` (via [TrackExecutionTimeAspect](file:///home/ajayraja/workarea/projects/event-ledger-ai-enabled/common/src/main/java/com/ledger/common/aop/TrackExecutionTimeAspect.java)) for dashboard monitoring.
+
+### 6.2. Application Auditing Capabilities
+The Event Ledger implements a structured, tamper-proof auditing mechanism using Spring AOP aspects ([AuditedTransactionAspect](file:///home/ajayraja/workarea/projects/event-ledger-ai-enabled/common/src/main/java/com/ledger/common/aop/AuditedTransactionAspect.java)) and JSON log correlation to maintain log integrity and accountability:
+- **AOP Annotation Driven**: Developers tag auditable service entry points using `@AuditedTransaction(action = "ACTION_NAME")`.
+- **Target Fields**: The aspect dynamically extracts transaction-critical fields: `eventId`, `accountId`, `type`, and `amount` using reflection on execution parameters.
+- **Structured JSON Logs**: Logs are serialized into standard structured JSON formats using Logstash encoders, allowing external log routers (like Promtail) to ship them to Loki.
+- **Audit Format Pattern**:
+  ```json
+  {
+    "event": "audit_log",
+    "action": "GATEWAY_PROCESS_EVENT",
+    "eventId": "evt-001",
+    "accountId": "acct-123",
+    "type": "CREDIT",
+    "amount": "150.00"
+  }
+  ```
+- **Trace Correlation**: Every audit record automatically inherits the active OpenTelemetry `traceId` and `spanId` within the thread's MDC context, enabling one-click audit-to-execution trace correlation in Grafana.
 
 ---
 
-## 6. Additional Features
+## 7. Operational & Deployment Enhancements
 
 The following updates were made to the event-ledger application and deployment configuration:
 
-1. **OpenTelemetry Telemetry Alignment:** 
-   Updated trace exporting in `docker-compose.yml` to target Tempo's HTTP/protobuf receiver endpoint (`http://tempo:4318/v1/traces`) instead of the gRPC receiver port. This solved the OTLP exporter connection reset errors and enabled trace ID/span ID propagation across distributed microservice logs.
-2. **H2 Console Accessibility:**
-   Adjusted security filter configurations in both `gateway-service` and `account-service` to bypass JWT/M2M authentication for the H2 database web consoles (`/h2-console/**`) and enabled `frameOptions.sameOrigin()` to permit nested H2 console layout loading in web browsers.
-3. **Structured Log Context Mappings:**
-   Validated correct MDC context extraction (`traceId` and `spanId`) mapping into JSON logger formats to ensure Loki correctly indexes and cross-references logs to Tempo traces.
-4. **Developer/Agent Integration Enhancements:**
-   - Introduced `AGENTS.md` context map in the root workspace directory for future assistant integration.
-   - Featured parallelized cached builds and automatic health checks inside `./start.sh`.
+### 7.1. OpenTelemetry Telemetry Alignment
+Updated trace exporting in `docker-compose.yml` to target Tempo's HTTP/protobuf receiver endpoint (`http://tempo:4318/v1/traces`) instead of the gRPC receiver port. This solved the OTLP exporter connection reset errors and enabled trace ID/span ID propagation across distributed microservice logs.
+
+### 7.2. H2 Console Accessibility
+Adjusted security filter configurations in both `gateway-service` and `account-service` to bypass JWT/M2M authentication for the H2 database web consoles (`/h2-console/**`) and enabled `frameOptions.sameOrigin()` to permit nested H2 console layout loading in web browsers.
+
+### 7.3. Structured Log Context Mappings
+Validated correct MDC context extraction (`traceId` and `spanId`) mapping into JSON logger formats to ensure Loki correctly indexes and cross-references logs to Tempo traces.
+
+### 7.4. Developer/Agent Integration Enhancements
+- Introduced `AGENTS.md` context map in the root workspace directory for future assistant integration.
+- Featured parallelized cached builds and automatic health checks inside `./start.sh`.
 
 ---
 
-## 7. System Interface Screenshots
+## 8. Testing, Verification & Performance Validation
+
+To guarantee the reliability, fault tolerance, and security of the Event Ledger System, comprehensive verification suites are executed:
+
+### 8.1. Unit Test Code Coverage (JaCoCo)
+The instruction coverage of the two main services has been improved past the 80% threshold using JUnit 5, Mockito, and MockMvc to test Lombok models, security validation, and resilience fallback handlers:
+
+| Subproject | Missed Instructions | Covered Instructions | Total Instructions | Final Coverage % |
+| :--- | :--- | :--- | :--- | :--- |
+| **`account-service`** | 122 | 1059 | 1181 | **89.67%** |
+| **`gateway-service`** | 138 | 1161 | 1299 | **89.38%** |
+
+#### Gateway Service JaCoCo Coverage Report
+![Gateway Service Test Coverage](./gateway-service-test-coverage.png)
+
+#### Account Service JaCoCo Coverage Report
+![Account Service Test Coverage](./account-service-test-coverage.png)
+
+### 8.2. Integration and Performance (k6) Testing
+To validate system reliability, security, and high concurrency under load, two testing suites were executed:
+
+1. **Gradle Integration Suite**:
+   - Total of 23 test suites executed successfully across `gateway-service` and `account-service`.
+   - Verified core workflows: JWT/M2M authentication boundaries, out-of-order running balance calculations, unique constraints fallback, and Resilience4j circuit breakers, timeouts, and bulkhead exceptions.
+
+2. **k6 Load Performance Testing**:
+   - Executed E2E request flow: token generation $\rightarrow$ event post $\rightarrow$ duplicate idempotency checks.
+   - Tested under ramping concurrency up to 10 Virtual Users (VUs) for 20 seconds.
+   - **Performance Results**:
+     - **Total Requests**: 2,255 requests (112 req/sec).
+     - **Request Failure Rate**: 0.00% (0 failures out of 2,255).
+     - **Latency (p(95))**: 48.87ms (well below the 500ms threshold target).
+     - **Checks Succeeded**: 100.00% (2,255 out of 2,255).
+
+---
+
+## 9. System Interface Screenshots
 
 Below are screenshots illustrating the various tools and interfaces configured for the Event Ledger System:
 
-### 7.1. HTTP REST Client Testing
+### 9.1. HTTP REST Client Testing
 Shows API requests being sent to the Gateway Service with JWT bearer tokens:
 ![HTTP REST Client](./HTTP-REST-client.png)
 
-### 7.2. OpenAPI Swagger Documentation
+### 9.2. OpenAPI Swagger Documentation
 Displays the interactive API schemas and endpoints for service integration:
 ![OpenAPI Swagger Docs](./OpenAPI-docs.png)
 
-### 7.3. Grafana Telemetry Dashboard
+### 9.3. Grafana Telemetry Dashboard
 The correlated Grafana dashboard visualizing scraped metrics and Loki logs linked to Tempo tracing spans:
 ![Grafana Dashboard](./Grafana_dashboard.png)
 
-### 7.4. Email Alerts (Mailpit Catcher)
+### 9.4. Email Alerts (Mailpit Catcher)
 Displays the incoming Grafana-generated alerts caught by the local SMTP mail server interface:
 ![Mailpit Email Alerts](./email_alerts.png)
