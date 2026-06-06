@@ -39,6 +39,24 @@ Calls from `gateway-service` to `account-service` pass through a combined Resili
 - **Logback JSON output** automatically injects `trace_id` and `span_id` from MDC context.
 - **Grafana Integration**: Cross-links Loki logs to Tempo traces (via trace IDs parsed from log JSON) and links Tempo traces back to Loki logs for highly efficient microservice debugging.
 
+
+---
+
+## 📊 Telemetry and Test Verification
+
+### Grafana Dashboard (Metrics, Logs, and Traces Correlation)
+The unified Grafana dashboard correlates Prometheus system metrics, Loki container logs, and Tempo tracing spans:
+
+![Grafana Dashboard](./documentation/Grafana_dashboard.png)
+
+### Automated Test Coverage (JaCoCo)
+The code coverage of both main services exceeds **89%** instruction coverage:
+
+| Subproject | Coverage | Report Screenshot |
+| :--- | :--- | :--- |
+| **`gateway-service`** | **89.38%** | ![Gateway Coverage](./documentation/gateway-service-test-coverage.png) |
+| **`account-service`** | **89.67%** | ![Account Coverage](./documentation/account-service-test-coverage.png) |
+
 ---
 
 ## 📦 How to Run
