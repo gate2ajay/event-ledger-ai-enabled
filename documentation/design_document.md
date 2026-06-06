@@ -240,6 +240,23 @@ The instruction coverage of the two main services has been improved past the 80%
 | **`account-service`** | 122 | 1059 | 1181 | **89.67%** |
 | **`gateway-service`** | 138 | 1161 | 1299 | **89.38%** |
 
+### 7.1. Integration and Performance (k6) Testing
+
+To validate system reliability, security, and high concurrency under load, two testing suites were executed:
+
+1. **Gradle Integration Suite**:
+   - Total of 23 test suites executed successfully across `gateway-service` and `account-service`.
+   - Verified core workflows: JWT/M2M authentication boundaries, out-of-order running balance calculations, unique constraints fallback, and Resilience4j circuit breakers, timeouts, and bulkhead exceptions.
+
+2. **k6 Load Performance Testing**:
+   - Executed E2E request flow: token generation $\rightarrow$ event post $\rightarrow$ duplicate idempotency checks.
+   - Tested under ramping concurrency up to 10 Virtual Users (VUs) for 20 seconds.
+   - **Performance Results**:
+     - **Total Requests**: 2,255 requests (112 req/sec).
+     - **Request Failure Rate**: 0.00% (0 failures out of 2,255).
+     - **Latency (p(95))**: 48.87ms (well below the 500ms threshold target).
+     - **Checks Succeeded**: 100.00% (2,255 out of 2,255).
+
 ---
 
 ## 8. System Interface Screenshots
