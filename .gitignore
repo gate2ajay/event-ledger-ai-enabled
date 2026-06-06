@@ -1,0 +1,17 @@
+.gradle/
+build/
+.settings/
+.project
+.classpath
+bin/
+*/build/
+*.class
+*.log
+*.hprof
+*.db
+aiops/.venv/
+aiops-agent/.venv/
+aiops-agent/diagnoses/diagnosis_*_mock.md
+aiops-agent/diagnoses/diagnosis_*_1*.md
+dumps/
+.DS_Store
