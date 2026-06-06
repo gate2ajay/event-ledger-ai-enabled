@@ -117,4 +117,138 @@ public class EventServiceTest {
         // Second save status is FAILED
         assertThat(eventCaptor.getAllValues().get(1).getStatus()).isEqualTo("FAILED");
     }
+
+    @Test
+    public void testProcessEvent_WithMetadata() {
+        java.util.Map<String, Object> meta = new java.util.HashMap<>();
+        meta.put("key1", "val1");
+        meta.put("key2", 42);
+
+        EventPayload payload = EventPayload.builder()
+                .eventId("evt-001")
+                .accountId("acct-123")
+                .type("CREDIT")
+                .amount(new BigDecimal("150.00"))
+                .currency("USD")
+                .eventTimestamp(Instant.now())
+                .metadata(meta)
+                .build();
+
+        when(repository.findById("evt-001")).thenReturn(Optional.empty());
+
+        EventPayload result = eventService.processEvent(payload);
+
+        assertThat(result).isNotNull();
+        assertThat(result.getMetadata()).containsEntry("key1", "val1");
+        assertThat(result.getMetadata()).containsEntry("key2", 42);
+    }
+
+    @Test
+    public void testProcessEvent_MetadataSerializationError() {
+        // Mock ObjectMapper to throw exception during writeValueAsString
+        ObjectMapper brokenMapper = mock(ObjectMapper.class);
+        try {
+            when(brokenMapper.writeValueAsString(any())).thenThrow(new RuntimeException("Serialization failed"));
+        } catch (Exception e) {}
+
+        EventService serviceWithBrokenMapper = new EventServiceImpl(repository, accountClient, brokenMapper);
+
+        java.util.Map<String, Object> meta = new java.util.HashMap<>();
+        meta.put("key", "val");
+
+        EventPayload payload = EventPayload.builder()
+                .eventId("evt-001")
+                .accountId("acct-123")
+                .type("CREDIT")
+                .amount(new BigDecimal("150.00"))
+                .currency("USD")
+                .eventTimestamp(Instant.now())
+                .metadata(meta)
+                .build();
+
+        when(repository.findById("evt-001")).thenReturn(Optional.empty());
+
+        EventPayload result = serviceWithBrokenMapper.processEvent(payload);
+
+        assertThat(result).isNotNull();
+        assertThat(result.getMetadata()).isEmpty(); // Fallback to empty map/null due to catch block
+    }
+
+    @Test
+    public void testProcessEvent_MetadataDeserializationError() {
+        // Prepare repository to return a GatewayEvent with invalid JSON in metadataJson
+        GatewayEvent existingEvent = GatewayEvent.builder()
+                .eventId("evt-001")
+                .accountId("acct-123")
+                .type("CREDIT")
+                .amount(new BigDecimal("150.00"))
+                .currency("USD")
+                .eventTimestamp(Instant.now())
+                .metadataJson("{invalid-json}")
+                .status("COMPLETED")
+                .build();
+
+        when(repository.findById("evt-001")).thenReturn(Optional.of(existingEvent));
+
+        // Attempting to process this duplicate event will throw DuplicateEventException containing mapped payload
+        assertThatThrownBy(() -> eventService.processEvent(EventPayload.builder().eventId("evt-001").build()))
+                .isInstanceOf(DuplicateEventException.class)
+                .satisfies(e -> {
+                    DuplicateEventException ex = (DuplicateEventException) e;
+                    assertThat(ex.getOriginalEvent().getMetadata()).isEmpty(); // Caught exception and returned empty map
+                });
+    }
+
+    @Test
+    public void testGetEventById_Found() {
+        GatewayEvent existingEvent = GatewayEvent.builder()
+                .eventId("evt-001")
+                .accountId("acct-123")
+                .type("CREDIT")
+                .amount(new BigDecimal("150.00"))
+                .currency("USD")
+                .eventTimestamp(Instant.now())
+                .metadataJson("{\"key\":\"val\"}")
+                .status("COMPLETED")
+                .build();
+
+        when(repository.findById("evt-001")).thenReturn(Optional.of(existingEvent));
+
+        EventPayload result = eventService.getEventById("evt-001");
+
+        assertThat(result).isNotNull();
+        assertThat(result.getEventId()).isEqualTo("evt-001");
+        assertThat(result.getMetadata()).containsEntry("key", "val");
+    }
+
+    @Test
+    public void testGetEventById_NotFound() {
+        when(repository.findById("evt-not-exists")).thenReturn(Optional.empty());
+
+        EventPayload result = eventService.getEventById("evt-not-exists");
+
+        assertThat(result).isNull();
+    }
+
+    @Test
+    public void testGetEventsByAccount() {
+        GatewayEvent existingEvent = GatewayEvent.builder()
+                .eventId("evt-001")
+                .accountId("acct-123")
+                .type("CREDIT")
+                .amount(new BigDecimal("150.00"))
+                .currency("USD")
+                .eventTimestamp(Instant.now())
+                .metadataJson("{\"key\":\"val\"}")
+                .status("COMPLETED")
+                .build();
+
+        when(repository.findByAccountIdOrderByEventTimestampAsc("acct-123"))
+                .thenReturn(java.util.List.of(existingEvent));
+
+        java.util.List<EventPayload> results = eventService.getEventsByAccount("acct-123");
+
+        assertThat(results).hasSize(1);
+        assertThat(results.get(0).getEventId()).isEqualTo("evt-001");
+    }
 }

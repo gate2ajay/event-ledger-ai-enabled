@@ -248,6 +248,32 @@ class WebhookHandler(BaseHTTPRequestHandler):
                         f.write(report)
                         
                     print(f"Generated diagnostic report: {filepath}")
+
+                    # 6. Automated Self-Healing (Restart service if down)
+                    if "down" in alert_name.lower():
+                        service_to_restart = None
+                        if "account" in alert_name.lower() or "account" in alert_desc.lower():
+                            service_to_restart = "account-service"
+                        elif "gateway" in alert_name.lower() or "gateway" in alert_desc.lower():
+                            service_to_restart = "gateway-service"
+                            
+                        if service_to_restart:
+                            print(f"[AIOps Auto-Heal] Detected service down alert for {service_to_restart}. Executing automated restart...")
+                            import subprocess
+                            try:
+                                result = subprocess.run(
+                                    ["docker", "compose", "restart", service_to_restart],
+                                    cwd=os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                                    capture_output=True,
+                                    text=True,
+                                    timeout=30
+                                )
+                                if result.returncode == 0:
+                                    print(f"[AIOps Auto-Heal] Successfully restarted {service_to_restart}.")
+                                else:
+                                    print(f"[AIOps Auto-Heal] Failed to restart {service_to_restart}. Error: {result.stderr}")
+                            except Exception as ex:
+                                print(f"[AIOps Auto-Heal] Exception during restart attempt: {ex}")
                 
                 self.send_response(200)
                 self.send_header('Content-Type', 'application/json')

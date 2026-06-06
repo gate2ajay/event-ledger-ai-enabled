@@ -19,9 +19,8 @@ common:
 query_range:
   results_cache:
     cache:
-      embedded_caster:
+      embedded_cache:
         enabled: true
-        max_size_bytes: 10MB
 
 schema_config:
   configs:
