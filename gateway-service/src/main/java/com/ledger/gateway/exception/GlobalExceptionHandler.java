@@ -86,6 +86,18 @@ public class GlobalExceptionHandler {
         return ResponseEntity.status(HttpStatus.GATEWAY_TIMEOUT).body(problemDetail);
     }
 
+    // 5b. Handle UndeclaredThrowableException to unpack wrapped checked exceptions (like TimeoutException)
+    @ExceptionHandler(java.lang.reflect.UndeclaredThrowableException.class)
+    public ResponseEntity<?> handleUndeclaredThrowableException(java.lang.reflect.UndeclaredThrowableException ex) {
+        if (ex.getUndeclaredThrowable() instanceof TimeoutException) {
+            return handleTimeoutException((TimeoutException) ex.getUndeclaredThrowable());
+        }
+        if (ex.getUndeclaredThrowable() instanceof Exception) {
+            return handleGenericException((Exception) ex.getUndeclaredThrowable());
+        }
+        return handleGenericException(new RuntimeException(ex.getUndeclaredThrowable()));
+    }
+
     // 6. Generic Exceptions - return HTTP 500 (Internal Server Error)
     @ExceptionHandler(Exception.class)
     public ResponseEntity<ProblemDetail> handleGenericException(Exception ex) {
