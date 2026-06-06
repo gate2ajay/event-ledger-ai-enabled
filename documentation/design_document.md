@@ -6,37 +6,30 @@ This document specifies the technical design, API contracts, database schemas, s
 
 ## 1. System Architecture Diagram
 
-```mermaid
-sequenceDiagram
-    autonumber
-    actor Client as External Client / Upstream
-    participant Gateway as Event Gateway Service
-    participant DB_GW as Gateway Database (H2)
-    participant Account as Account Service
-    participant DB_ACC as Account Database (H2)
+Architecture diagram
 
-    Client->>Gateway: POST /events (with JWT bearer token)
-    Note over Gateway: 1. Validate JWT Signature<br/>2. Validate Event DTO Fields
-    Gateway->>DB_GW: Check duplicate eventId
-    alt Event ID exists (Idempotency Hit)
-        DB_GW-->>Gateway: Return existing event record
-        Gateway-->>Client: HTTP 209 Conflict (or HTTP 200 with original event)
-    else Event ID is unique
-        Gateway->>DB_GW: Persist event (Status: PENDING)
-        
-        Note over Gateway: Apply Resiliency Wrapper:<br/>[Bulkhead] -> [Circuit Breaker] -> [Timeout/Retry]
-        
-        Gateway->>Account: POST /accounts/{accountId}/transactions (with M2M Secret Token & traceparent header)
-        
-        Note over Account: 1. Validate M2M Token<br/>2. Check duplicate eventId
-        Account->>DB_ACC: Persist transaction & recalculate balance
-        DB_ACC-->>Account: Transaction saved
-        Account-->>Gateway: HTTP 201 Created (Success)
-        
-        Gateway->>DB_GW: Update event (Status: COMPLETED)
-        Gateway-->>Client: HTTP 201 Created (Original Event)
-    end
-```
+![Architecture Diagram](./architecture-diagram.jpeg)
+
+### 1.1 Key Integration Points
+
+- **External Client to Event Gateway:** 
+  Clients authenticate via JWT bearer tokens and submit financial transaction events to the Event Gateway Service (`gateway-service`) on port `8080`.
+  
+- **Gateway to Account Service (Internal Machine-to-Machine):** 
+  The Gateway propagates transaction requests internally to the Account Service (`account-service`) on port `8081`. This communication is secured using a shared bearer token (`internal-gateway-m2m-secret`) and includes W3C `traceparent` headers for distributed trace propagation across service boundaries.
+  
+- **Service Databases:** 
+  Each microservice integrates with its own separate, in-memory H2 database (`gatewaydb` and `accountdb`) to store domain-specific entities (idempotency records for events, and transaction ledger details for accounts).
+  
+- **Observability and Telemetry Stack:**
+  - **Traces:** Both services push span telemetry to **Grafana Tempo** over OTLP HTTP/protobuf on port `4318/v1/traces`.
+  - **Metrics:** **Prometheus** scrapes application performance metrics from Spring Boot `/actuator/prometheus` endpoints on port `9090`.
+  - **Logs:** **Promtail** collects stdout JSON logs from the service containers and ships them to **Grafana Loki** on port `3100`.
+  - **Unified Dashboard:** **Grafana** integrates Loki, Tempo, and Prometheus data sources on port `3001` to correlate trace IDs, logs, and system metrics.
+
+  Sequence diagram
+
+![Sequence Diagram](./sequence-diagram.jpeg)
 
 ---
 
@@ -184,7 +177,76 @@ The `gateway-service` implements three nested Resilience4j decorators on calls t
 * **Wait Duration in Open State**: `10000ms` (10 seconds) before transitioning to Half-Open.
 * **Permitted Number of Calls in Half-Open**: `3` trials.
 
+When the circuit breaker is **OPEN**, subsequent requests to downstream components are blocked and fail fast. The client receives an immediate `503 Service Unavailable` response containing the following structure:
+```json
+{
+  "type": "about:blank",
+  "title": "Service Unavailable",
+  "status": 503,
+  "detail": "Account Service is currently unavailable (Circuit Breaker open)",
+  "instance": "/events",
+  "trace_id": "b6e8a0b6332a39a7064621a985a4298e"
+}
+```
+
 ### 5.4. Bulkhead
 * **Type**: Semaphore or Threadpool (ThreadPool bulkhead is preferred for RestClient isolation).
 * **Max Concurrent Calls**: `10`.
 * **Max Queue Capacity**: `5`. If more than 15 requests are concurrently handled, additional requests fail fast with `BulkheadFullException`.
+
+### 5.5. Central Exception Handling
+The application implements centralized exception mapping via `@RestControllerAdvice` in the [GlobalExceptionHandler](file:///home/ajayraja/workarea/projects/event-ledger-ai-enabled/gateway-service/src/main/java/com/ledger/gateway/exception/GlobalExceptionHandler.java).
+* **RFC 7807 Problem Details:** Exception mappings return standard Spring Boot 3 `ProblemDetail` structures to provide readable, structured metadata for API clients.
+* **Telemetry Propagation:** Every error payload includes a correlated `trace_id` retrieved dynamically from the active OpenTelemetry span/MDC context, simplifying request correlation.
+* **Status Code Mapping:**
+  * `DuplicateEventException` $\rightarrow$ HTTP `209 Conflict` (returns original payload)
+  * `CallNotPermittedException` (Circuit Breaker) $\rightarrow$ HTTP `503 Service Unavailable`
+  * `BulkheadFullException` $\rightarrow$ HTTP `429 Too Many Requests`
+  * `TimeoutException` $\rightarrow$ HTTP `504 Gateway Timeout`
+  * `MethodArgumentNotValidException` (Validation) $\rightarrow$ HTTP `400 Bad Request`
+  * `Exception` (Generic Fallback) $\rightarrow$ HTTP `500 Internal Server Error`
+
+### 5.6. Aspect-Oriented Programming (AOP) Implementation
+AOP is configured to inject cross-cutting concerns (auditing and metrics tracking) dynamically without polluting core service logic:
+* **Execution Monitoring ([TrackExecutionTimeAspect](file:///home/ajayraja/workarea/projects/event-ledger-ai-enabled/common/src/main/java/com/ledger/common/aop/TrackExecutionTimeAspect.java)):**
+  Intercepts methods annotated with `@TrackExecutionTime`. It logs the method execution time in JSON format and registers a timer metric inside the Prometheus `MeterRegistry` for visual dashboard monitoring.
+* **Transaction Auditing ([AuditedTransactionAspect](file:///home/ajayraja/workarea/projects/event-ledger-ai-enabled/common/src/main/java/com/ledger/common/aop/AuditedTransactionAspect.java)):**
+  Intercepts methods annotated with `@AuditedTransaction`. It inspects method parameters (using reflection) to extract transaction details like `eventId`, `accountId`, and `amount`, writing a structured JSON audit log before execution begins.
+
+---
+
+## 6. Additional Features
+
+The following updates were made to the event-ledger application and deployment configuration:
+
+1. **OpenTelemetry Telemetry Alignment:** 
+   Updated trace exporting in `docker-compose.yml` to target Tempo's HTTP/protobuf receiver endpoint (`http://tempo:4318/v1/traces`) instead of the gRPC receiver port. This solved the OTLP exporter connection reset errors and enabled trace ID/span ID propagation across distributed microservice logs.
+2. **H2 Console Accessibility:**
+   Adjusted security filter configurations in both `gateway-service` and `account-service` to bypass JWT/M2M authentication for the H2 database web consoles (`/h2-console/**`) and enabled `frameOptions.sameOrigin()` to permit nested H2 console layout loading in web browsers.
+3. **Structured Log Context Mappings:**
+   Validated correct MDC context extraction (`traceId` and `spanId`) mapping into JSON logger formats to ensure Loki correctly indexes and cross-references logs to Tempo traces.
+4. **Developer/Agent Integration Enhancements:**
+   - Introduced `AGENTS.md` context map in the root workspace directory for future assistant integration.
+   - Featured parallelized cached builds and automatic health checks inside `./start.sh`.
+
+---
+
+## 7. System Interface Screenshots
+
+Below are screenshots illustrating the various tools and interfaces configured for the Event Ledger System:
+
+### 7.1. HTTP REST Client Testing
+Shows API requests being sent to the Gateway Service with JWT bearer tokens:
+![HTTP REST Client](./HTTP-REST-client.png)
+
+### 7.2. OpenAPI Swagger Documentation
+Displays the interactive API schemas and endpoints for service integration:
+![OpenAPI Swagger Docs](./OpenAPI-docs.png)
+
+### 7.3. Grafana Telemetry Dashboard
+The correlated Grafana dashboard visualizing scraped metrics and Loki logs linked to Tempo tracing spans:
+![Grafana Dashboard](./Grafana_dashboard.png)
+
+### 7.4. Email Alerts (Mailpit Catcher)
+Displays the incoming Grafana-generated alerts caught by the local SMTP mail server interface:
+![Mailpit Email Alerts](./email_alerts.png)

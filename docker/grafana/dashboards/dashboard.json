@@ -34,13 +34,13 @@
       "type": "stat",
       "datasource": {
         "type": "prometheus",
-        "uid": "Prometheus"
+        "uid": "prometheus"
       },
       "targets": [
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "Prometheus"
+            "uid": "prometheus"
           },
           "editorMode": "code",
           "expr": "up{job=\"gateway-service\"}",
@@ -93,13 +93,13 @@
       "type": "stat",
       "datasource": {
         "type": "prometheus",
-        "uid": "Prometheus"
+        "uid": "prometheus"
       },
       "targets": [
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "Prometheus"
+            "uid": "prometheus"
           },
           "editorMode": "code",
           "expr": "up{job=\"account-service\"}",
@@ -152,13 +152,13 @@
       "type": "timeseries",
       "datasource": {
         "type": "prometheus",
-        "uid": "Prometheus"
+        "uid": "prometheus"
       },
       "targets": [
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "Prometheus"
+            "uid": "prometheus"
           },
           "editorMode": "code",
           "expr": "sum(rate(http_server_requests_seconds_count[1m])) by (job, uri, status)",
@@ -181,13 +181,13 @@
       "type": "timeseries",
       "datasource": {
         "type": "prometheus",
-        "uid": "Prometheus"
+        "uid": "prometheus"
       },
       "targets": [
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "Prometheus"
+            "uid": "prometheus"
           },
           "editorMode": "code",
           "expr": "resilience4j_circuitbreaker_state",
@@ -210,13 +210,13 @@
       "type": "logs",
       "datasource": {
         "type": "loki",
-        "uid": "Loki"
+        "uid": "loki"
       },
       "targets": [
         {
           "datasource": {
             "type": "loki",
-            "uid": "Loki"
+            "uid": "loki"
           },
           "expr": "{container=~\"gateway-service|account-service\"}",
           "refId": "A"

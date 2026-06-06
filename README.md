@@ -50,16 +50,68 @@ To compile the modules and run all JUnit integration tests (using RestAssured):
 ```
 
 ### 2. Build and Launch Containerized Stack
-First, build the Spring Boot executable Jars:
+
+#### Option A: Automated Startup Script (Recommended)
+You can start the entire stack using the automated script. It will run an optimized parallel Gradle build, build the containers, launch them in the background, and wait until all health checks are green:
 ```bash
-./gradlew bootJar -x test
+./start.sh
 ```
-Then, spin up the entire telemetry stack and microservices using Docker Compose:
+*   Use the `--clean` or `-c` flag to stop and clean up any existing containers beforehand: `./start.sh --clean`
+
+#### Option B: Manual Execution
+If you prefer running the commands step-by-step:
+1. Build the Spring Boot executable JARs:
+   ```bash
+   ./gradlew bootJar -x test
+   ```
+2. Spin up the containers using Docker Compose:
+   ```bash
+   docker compose up --build
+   ```
+
+### 3. Authenticate and Hit the API Endpoints
+
+#### Public Gateway API (Port `8080`)
+1. **Acquire a JWT token:**
+   Request a JWT token by specifying a client name:
+   ```bash
+   curl -s "http://localhost:8080/auth/token?client=test-user"
+   ```
+   This will return a JSON payload:
+   ```json
+   {
+     "token_type": "Bearer",
+     "token": "eyJhbGciOiJI..."
+   }
+   ```
+2. **Submit API requests:**
+   Pass the token value in the standard `Authorization` header:
+   ```bash
+   curl -i -H "Authorization: Bearer <YOUR_JWT_TOKEN>" \
+        -H "Content-Type: application/json" \
+        -d '{
+          "eventId": "evt-001",
+          "accountId": "k6-load-test-account",
+          "type": "CREDIT",
+          "amount": 100.00,
+          "currency": "USD",
+          "eventTimestamp": "2026-06-06T05:32:17.926Z"
+        }' \
+        http://localhost:8080/events
+   ```
+
+#### Direct Account Service API (Port `8081`)
+Endpoints on the Account Service are secured using machine-to-machine (M2M) authentication.
+* **Header Key:** `Authorization`
+* **Header Value:** `Bearer internal-gateway-m2m-secret`
+
+Example request:
 ```bash
-docker compose up --build
+curl -i -H "Authorization: Bearer internal-gateway-m2m-secret" \
+     http://localhost:8081/accounts/k6-load-test-account/balance
 ```
 
-### 3. Run and Verify the AIOps Webhook Agent
+### 4. Run and Verify the AIOps Webhook Agent
 The `/aiops-agent` listener operates webhook processing and diagnostic report generation.
 To trigger a mock Circuit Breaker alert locally and check the generated post-mortem diagnosis report:
 ```bash

@@ -10,12 +10,20 @@ contactPoints:
           addresses: alerts@ledger.local
           singleEmail: true
 
+  - orgId: 1
+    name: aiops-webhook
+    receivers:
+      - uid: aiops-webhook-receiver
+        type: webhook
+        settings:
+          url: http://host.docker.internal:5005/webhook
+
 policies:
   - orgId: 1
-    receiver: mailpit
+    receiver: aiops-webhook
     groupRules:
       - groupRules: []
-        receiver: mailpit
+        receiver: aiops-webhook
 
 groups:
   - orgId: 1
@@ -28,7 +36,10 @@ groups:
         condition: A
         data:
           - refId: A
-            datasourceUid: Prometheus
+            datasourceUid: prometheus
+            relativeTimeRange:
+              from: 300
+              to: 0
             model:
               expr: up{job="gateway-service"} == 0
               intervalMs: 10000
@@ -46,7 +57,10 @@ groups:
         condition: A
         data:
           - refId: A
-            datasourceUid: Prometheus
+            datasourceUid: prometheus
+            relativeTimeRange:
+              from: 300
+              to: 0
             model:
               expr: up{job="account-service"} == 0
               intervalMs: 10000
@@ -64,7 +78,10 @@ groups:
         condition: A
         data:
           - refId: A
-            datasourceUid: Prometheus
+            datasourceUid: prometheus
+            relativeTimeRange:
+              from: 300
+              to: 0
             model:
               expr: sum(resilience4j_circuitbreaker_state{state="open"}) > 0
               intervalMs: 10000
