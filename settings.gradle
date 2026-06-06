@@ -1,0 +1,4 @@
+rootProject.name = 'event-ledger'
+include 'common'
+include 'gateway-service'
+include 'account-service'
