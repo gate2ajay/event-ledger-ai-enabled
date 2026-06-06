@@ -213,6 +213,26 @@ AOP is configured to inject cross-cutting concerns (auditing and metrics trackin
 * **Transaction Auditing ([AuditedTransactionAspect](file:///home/ajayraja/workarea/projects/event-ledger-ai-enabled/common/src/main/java/com/ledger/common/aop/AuditedTransactionAspect.java)):**
   Intercepts methods annotated with `@AuditedTransaction`. It inspects method parameters (using reflection) to extract transaction details like `eventId`, `accountId`, and `amount`, writing a structured JSON audit log before execution begins.
 
+### 5.7. Application Auditing Capabilities
+
+The Event Ledger implements a structured, tamper-proof auditing mechanism using Spring AOP aspects and JSON log correlation to maintain log integrity and accountability:
+
+- **AOP Annotation Driven**: Developers tag auditable service entry points using `@AuditedTransaction(action = "ACTION_NAME")`.
+- **Target Fields**: The aspect dynamically extracts transaction-critical fields: `eventId`, `accountId`, `type`, and `amount` using reflection on execution parameters.
+- **Structured JSON Logs**: Logs are serialized into standard structured JSON formats using Logstash encoders, allowing external log routers (like Grafail/Promtail) to ship them to Loki.
+- **Audit Format Pattern**:
+  ```json
+  {
+    "event": "audit_log",
+    "action": "GATEWAY_PROCESS_EVENT",
+    "eventId": "evt-001",
+    "accountId": "acct-123",
+    "type": "CREDIT",
+    "amount": "150.00"
+  }
+  ```
+- **Trace Correlation**: Every audit record automatically inherits the active OpenTelemetry `traceId` and `spanId` within the thread's MDC context, enabling one-click audit-to-execution trace correlation in Grafana.
+
 ---
 
 ## 6. Additional Features
