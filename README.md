@@ -4,6 +4,14 @@ An **Event Ledger** microservices system built using **Spring Boot 3.x**, **Grad
 
 ---
 
+## 📚 Documentation
+
+Detailed system documentation is available in the [documentation](file:///home/ajayraja/workarea/projects/event-ledger-ai-enabled/documentation) directory:
+- [Design Document](file:///home/ajayraja/workarea/projects/event-ledger-ai-enabled/documentation/design_document.md) - System architecture details, design patterns, and decisions.
+- [API Specification](file:///home/ajayraja/workarea/projects/event-ledger-ai-enabled/documentation/api_specification.md) - API endpoints, request/response models, and error handling.
+
+---
+
 ## 🚀 Port Directory
 
 * **Gateway Service**: `http://localhost:8080`
