@@ -27,9 +27,26 @@ Architecture diagram
   - **Logs:** **Promtail** collects stdout JSON logs from the service containers and ships them to **Grafana Loki** on port `3100`.
   - **Unified Dashboard:** **Grafana** integrates Loki, Tempo, and Prometheus data sources on port `3001` to correlate trace IDs, logs, and system metrics.
 
-  Sequence diagram
-
 ![Sequence Diagram](./sequence-diagram.jpeg)
+
+### 1.2 Event Processing Sequence Flow
+
+1. **Submit Event**: The `External Client / Upstream` submits a financial transaction event via `POST /events` with a JWT bearer token to the `Event Gateway Service`.
+2. **Gateway Validation**: The `Event Gateway Service` validates the JWT signature and basic event DTO fields (checks for positive amount, valid event type, etc.).
+3. **Idempotency Lookup**: The gateway queries the `Gateway Database (H2)` to check if the `eventId` already exists.
+4. **Determine Path**:
+   - **Scenario A: Event ID Exists (Idempotency Hit)**
+     - The gateway returns the stored event record from the database.
+     - The gateway responds to the client with `HTTP 209 Conflict` (or `HTTP 200 OK` with the original event).
+   - **Scenario B: Event ID is Unique (New Event)**
+     - The gateway inserts the event record with status `PENDING` into the `Gateway Database (H2)`.
+5. **Resiliency Wrapping**: The gateway invokes the downstream call wrapped in a Resilience4j decorator chain: `[Bulkhead] -> [Circuit Breaker] -> [Timeout/Retry]`.
+6. **Propagate Transaction**: The gateway makes a synchronous `POST /accounts/{accountId}/transactions` request to the `Account Service`, passing the internal M2M secret token and a W3C `traceparent` tracing header.
+7. **Downstream Validation**: The `Account Service` validates the M2M secret token and performs a secondary database-level uniqueness check on the `eventId` as a fallback against concurrent races.
+8. **Persist Transaction**: The `Account Service` persists the transaction to the `Account Database (H2)` and dynamically recomputes the account balance chronologically by event timestamp.
+9. **Downstream Success**: The `Account Service` returns `HTTP 201 Created` to the gateway.
+10. **Finalize State**: The gateway updates the local event status from `PENDING` to `COMPLETED` in the `Gateway Database (H2)`.
+11. **Client Response**: The gateway returns `HTTP 201 Created` with the processed event to the `External Client / Upstream`.
 
 ---
 
